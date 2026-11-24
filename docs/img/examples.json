@@ -1,0 +1,63 @@
+{
+ "ctc_example": {
+  "ref": "that stinging vapor was caused by chloride vaporization",
+  "greedy": "DH AE T | S IH NG IH NG | M EH P ER P AW ER | W AA Z | SH AA L Z | B | K W AY AH D | P IY P ER AY | IH SH AH N |"
+ },
+ "chain_examples": [
+  {
+   "ref": "bringing something for a potluck picnic",
+   "greedy": "M R AE NG G AH N D | S AH M TH AH NG D | F AO R | AH | P AA L AH L IH K | M IH K N IH K |",
+   "ngram_top3": [
+    "reagan something for a potluck picnic",
+    "reagan's something for a potluck picnic",
+    "megan something for a potluck picnic"
+   ],
+   "opt": "reagan's something for a public picnic",
+   "fused": "bringing something for a potluck picnic"
+  },
+  {
+   "ref": "if you've only got a token force there",
+   "greedy": "IH F | Y UW V | AO N L IY | G AA T | AH | S T OW K AH N | F ER S | DH EH R |",
+   "ngram_top3": [
+    "if you've only got a second verse there",
+    "if you've only got a token verse there",
+    "if you've only got a token first there"
+   ],
+   "opt": "if you've only got a token post there",
+   "fused": "if you've only got a token force there"
+  },
+  {
+   "ref": "they close sometime after eight",
+   "greedy": "DH EY | K L OW Z | S AH M P T L EH M | AE F T ER | IY T |",
+   "ngram_top3": [
+    "the lows sometime after e",
+    "they closed sometime after e",
+    "they lows sometime after e"
+   ],
+   "opt": "they closed sometime after e",
+   "fused": "they close sometime after eight"
+  },
+  {
+   "ref": "for your next vehicle do you want a truck",
+   "greedy": "F UW | Y UW | N AE K S IH K T | V P IH IH K AH L | D OW | Y UW | W AA N T | AH | T R AH K |",
+   "ngram_top3": [
+    "do you access vehicle do you want a truck",
+    "do you act vehicle do you want a truck",
+    "do you ask vehicle do you want a truck"
+   ],
+   "opt": "for you next vehicle do you want a truck",
+   "fused": "for your next vehicle do you want a truck"
+  },
+  {
+   "ref": "vision in the cave of evil",
+   "greedy": "R IH Z IH N | IH N | DH AH | K EY V | AH V | EY V AH L |",
+   "ngram_top3": [
+    "vision in the cave of evil",
+    "when in the cave of evil",
+    "risen in the cave of evil"
+   ],
+   "opt": "getting in the way of evil",
+   "fused": "vision in the cave of evil"
+  }
+ ]
+}

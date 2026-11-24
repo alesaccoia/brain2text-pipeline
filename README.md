@@ -2,6 +2,8 @@
 
 Code for the [Brain-to-Text Benchmark '24](https://eval.ai/web/challenges/challenge-page/2099/overview). The task is to decode sentences that a participant with ALS tried to speak, using intracortical recordings from speech motor cortex (Willett et al., 2023).
 
+For a step-by-step explanation with figures, see [docs/EXPLAINER.md](docs/EXPLAINER.md).
+
 The pipeline has five stages:
 
 1. **Neural decoder.** Binned neural features (20 ms) go in, phoneme probabilities come out, trained with CTC. The architecture is a GRU or a Transformer.
@@ -42,7 +44,7 @@ src/
   llm_merge.py      multi-decoder fusion with an LLM behind an OpenAI-compatible endpoint
 scripts/            data download, lm_decoder build, job queue workers, status
 paper/              technical report (LaTeX, in Italian) and figures
-docs/               operational notes for the machine this was developed on (Italian)
+docs/               EXPLAINER.md with figures; operational notes (Italian)
 ```
 
 ## Setup

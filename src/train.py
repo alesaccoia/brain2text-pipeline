@@ -62,6 +62,7 @@ def get_args():
     p.add_argument('--chan_drop', type=float, default=0.0, help='prob. di azzerare interi canali per frase')
     p.add_argument('--conv_kernel', type=int, default=15, help='kernel della convoluzione depthwise (conformer)')
     p.add_argument('--extra', type=int, default=0, help='1 = aggiunge i blocchi Chang (prep_extra.py) al train')
+    p.add_argument('--diphone', type=float, default=0.0, help='peso CTC sui difoni (0 = off); il resto va alla CTC sui fonemi marginalizzati')
     p.add_argument('--layerdrop', type=float, default=0.0, help='stochastic depth: prob. max di saltare un blocco')
     return p.parse_args()
 
@@ -165,7 +166,7 @@ class Decoder(nn.Module):
             self.out_norm = nn.LayerNorm(out_dim)
             if a.interctc > 0:
                 self.inter_norm = nn.LayerNorm(out_dim)
-                self.inter_fc = nn.Linear(out_dim, n_out)
+                self.inter_fc = nn.Linear(out_dim, 41)
         self.drop = nn.Dropout(a.dropout)
         self.fc = nn.Linear(out_dim, n_out)
 
@@ -200,6 +201,25 @@ class Decoder(nn.Module):
                     self.inter_out = self.inter_fc(self.inter_norm(X))
         X = self.drop(self.out_norm(X))
         return self.fc(X), olens
+
+
+# ----------------------------------------------------------------------------- difoni
+NP = 40  # fonemi + SIL (id 1..40); blank = 0
+
+
+def diphone_targets(Y, ylens):
+    """(prev, cur) -> 1 + (prev-1)*NP + (cur-1); il primo prev e' SIL (40)."""
+    prev = torch.cat([torch.full_like(Y[:, :1], NP), Y[:, :-1]], 1)
+    D = 1 + (prev - 1) * NP + (Y - 1)
+    mask = torch.arange(Y.shape[1], device=Y.device)[None] < ylens[:, None]
+    return torch.where(mask, D, torch.zeros_like(D))
+
+
+def to_phone_lp(lp):
+    """log-prob su 1+NP*NP classi -> 1+NP classi (somma sul fonema precedente)."""
+    blank = lp[..., :1]
+    di = lp[..., 1:].reshape(*lp.shape[:-1], NP, NP)  # [prev, cur]
+    return torch.cat([blank, torch.logsumexp(di, dim=-2)], -1)
 
 
 # ----------------------------------------------------------------------------- augment
@@ -262,6 +282,8 @@ def run_eval(model, trials, device, bs=64, want_logits=False):
         with torch.autocast('cuda', dtype=torch.float16):
             out, olens = model(b['X'], b['days'], b['lens'])
         lp = out.float().log_softmax(-1)
+        if lp.shape[-1] > 41:
+            lp = to_phone_lp(lp)
         for j in range(lp.shape[0]):
             L = int(olens[j])
             if want_logits:
@@ -317,7 +339,7 @@ def main():
         train = train + ex
     test, comp = d['test'], d['competition']
     n_in = train[0]['x'].shape[1]
-    model = Decoder(a, n_in, len(d['sessions'])).to(device)
+    model = Decoder(a, n_in, len(d['sessions']), n_out=(1 + NP * NP) if a.diphone > 0 else 41).to(device)
     log(f'parametri: {sum(p.numel() for p in model.parameters())/1e6:.1f}M, train={len(train)} test={len(test)} comp={len(comp)}')
 
     if a.optim == 'adam':
@@ -353,7 +375,13 @@ def main():
         X = augment(X, lens, a)
         with torch.autocast('cuda', dtype=torch.float16, enabled=bool(a.amp)):
             out, olens = model(X, b['days'], lens)
-        loss = ctc(out.float().log_softmax(-1).transpose(0, 1), b['Y'], olens, b['ylens'])
+        lp = out.float().log_softmax(-1)
+        if a.diphone > 0:
+            ld = ctc(lp.transpose(0, 1), diphone_targets(b['Y'], b['ylens']), olens, b['ylens'])
+            lph = ctc(to_phone_lp(lp).transpose(0, 1), b['Y'], olens, b['ylens'])
+            loss = a.diphone * ld + (1 - a.diphone) * lph
+        else:
+            loss = ctc(lp.transpose(0, 1), b['Y'], olens, b['ylens'])
         if a.interctc > 0 and a.arch != 'gru':
             li = ctc(model.inter_out.float().log_softmax(-1).transpose(0, 1), b['Y'], olens, b['ylens'])
             loss = (1 - a.interctc) * loss + a.interctc * li

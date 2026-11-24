@@ -61,6 +61,7 @@ def get_args():
     p.add_argument('--time_warp', type=float, default=0.0, help='fattore max di velocita (es. 0.15 = 0.85..1.15)')
     p.add_argument('--chan_drop', type=float, default=0.0, help='prob. di azzerare interi canali per frase')
     p.add_argument('--conv_kernel', type=int, default=15, help='kernel della convoluzione depthwise (conformer)')
+    p.add_argument('--extra', type=int, default=0, help='1 = aggiunge i blocchi Chang (prep_extra.py) al train')
     p.add_argument('--layerdrop', type=float, default=0.0, help='stochastic depth: prob. max di saltare un blocco')
     return p.parse_args()
 
@@ -308,6 +309,12 @@ def main():
         oof = [t for t in d['train'] if fold_of[(t['day'], t['block'])] == a.fold]
         d['train'] = [t for t in d['train'] if fold_of[(t['day'], t['block'])] != a.fold]
     train = d['train'] + (d['test'] if a.train_on_test else [])
+    if a.extra:
+        ex = pickle.load(open(f'{ROOT}/data/processed/b2t24_extra.pkl', 'rb'))['extra']
+        cols = FEATSETS[a.feats]
+        for t in ex:
+            t['x'] = torch.from_numpy(np.ascontiguousarray(t['x'][:, cols])); t['y'] = torch.from_numpy(t['phonemes'])
+        train = train + ex
     test, comp = d['test'], d['competition']
     n_in = train[0]['x'].shape[1]
     model = Decoder(a, n_in, len(d['sessions'])).to(device)

@@ -24,7 +24,7 @@ def get_args():
     p = argparse.ArgumentParser()
     p.add_argument('--name', required=True)
     p.add_argument('--data', default=f'{ROOT}/data/processed/b2t24.pkl')
-    p.add_argument('--arch', default='gru', choices=['gru', 'transformer'])
+    p.add_argument('--arch', default='gru', choices=['gru', 'transformer', 'conformer'])
     p.add_argument('--feats', default='6v', choices=list(FEATSETS))
     p.add_argument('--seed', type=int, default=0)
     p.add_argument('--steps', type=int, default=10000)
@@ -55,6 +55,13 @@ def get_args():
     p.add_argument('--save_train_logits', type=int, default=0)
     p.add_argument('--fold', type=int, default=-1, help='>=0: esclude dal train i blocchi del fold e salva logits_oof.npz')
     p.add_argument('--nfolds', type=int, default=5)
+    # --- v2: miglioramenti del decoder neurale
+    p.add_argument('--ema', type=float, default=0.0, help='decadimento EMA dei pesi (0 = off); eval e salvataggi usano i pesi EMA')
+    p.add_argument('--interctc', type=float, default=0.0, help='peso della CTC intermedia (strato a meta)')
+    p.add_argument('--time_warp', type=float, default=0.0, help='fattore max di velocita (es. 0.15 = 0.85..1.15)')
+    p.add_argument('--chan_drop', type=float, default=0.0, help='prob. di azzerare interi canali per frase')
+    p.add_argument('--conv_kernel', type=int, default=15, help='kernel della convoluzione depthwise (conformer)')
+    p.add_argument('--layerdrop', type=float, default=0.0, help='stochastic depth: prob. max di saltare un blocco')
     return p.parse_args()
 
 
@@ -94,6 +101,35 @@ def gaussian_kernel(width, size=20):
     return k / k.sum()
 
 
+class ConformerBlock(nn.Module):
+    def __init__(self, d, heads, kernel, drop):
+        super().__init__()
+        self.ff1 = nn.Sequential(nn.LayerNorm(d), nn.Linear(d, 4 * d), nn.SiLU(), nn.Dropout(drop), nn.Linear(4 * d, d), nn.Dropout(drop))
+        self.ln_att = nn.LayerNorm(d)
+        self.att = nn.MultiheadAttention(d, heads, dropout=drop, batch_first=True)
+        self.drop_att = nn.Dropout(drop)
+        self.ln_conv = nn.LayerNorm(d)
+        self.pw1 = nn.Conv1d(d, 2 * d, 1)
+        self.dw = nn.Conv1d(d, d, kernel, padding=kernel // 2, groups=d)
+        self.bn = nn.BatchNorm1d(d)
+        self.pw2 = nn.Conv1d(d, d, 1)
+        self.drop_conv = nn.Dropout(drop)
+        self.ff2 = nn.Sequential(nn.LayerNorm(d), nn.Linear(d, 4 * d), nn.SiLU(), nn.Dropout(drop), nn.Linear(4 * d, d), nn.Dropout(drop))
+        self.ln_out = nn.LayerNorm(d)
+
+    def forward(self, x, mask):
+        x = x + 0.5 * self.ff1(x)
+        h = self.ln_att(x)
+        h, _ = self.att(h, h, h, key_padding_mask=mask, need_weights=False)
+        x = x + self.drop_att(h)
+        h = self.ln_conv(x).masked_fill(mask[..., None], 0).transpose(1, 2)
+        h = F.glu(self.pw1(h), dim=1)
+        h = self.pw2(F.silu(self.bn(self.dw(h))))
+        x = x + self.drop_conv(h.transpose(1, 2))
+        x = x + 0.5 * self.ff2(x)
+        return self.ln_out(x)
+
+
 class Decoder(nn.Module):
     def __init__(self, a, n_in, n_days, n_out=41):
         super().__init__()
@@ -118,11 +154,17 @@ class Decoder(nn.Module):
             self.proj = nn.Sequential(nn.LayerNorm(in_dim), nn.Linear(in_dim, a.d_model), nn.Dropout(a.dropout))
             self.pos = nn.Parameter(torch.zeros(1, 1024, a.d_model))
             nn.init.normal_(self.pos, std=0.02)
-            layer = nn.TransformerEncoderLayer(a.d_model, a.heads, 4 * a.d_model, a.dropout, activation='gelu',
-                                               batch_first=True, norm_first=True)
-            self.enc = nn.TransformerEncoder(layer, a.layers, enable_nested_tensor=False)
+            if a.arch == 'transformer':
+                self.blocks = nn.ModuleList([nn.TransformerEncoderLayer(a.d_model, a.heads, 4 * a.d_model, a.dropout,
+                                             activation='gelu', batch_first=True, norm_first=True) for _ in range(a.layers)])
+            else:
+                self.blocks = nn.ModuleList([ConformerBlock(a.d_model, a.heads, a.conv_kernel, a.dropout)
+                                             for _ in range(a.layers)])
             out_dim = a.d_model
             self.out_norm = nn.LayerNorm(out_dim)
+            if a.interctc > 0:
+                self.inter_norm = nn.LayerNorm(out_dim)
+                self.inter_fc = nn.Linear(out_dim, n_out)
         self.drop = nn.Dropout(a.dropout)
         self.fc = nn.Linear(out_dim, n_out)
 
@@ -148,12 +190,34 @@ class Decoder(nn.Module):
             X = self.proj(X)
             X = X + self.pos[:, :X.shape[1]]
             mask = torch.arange(X.shape[1], device=X.device)[None] >= olens[:, None]
-            X = self.enc(X, src_key_padding_mask=mask)
+            nl = len(self.blocks)
+            for i, blk in enumerate(self.blocks):
+                pdrop = self.a.layerdrop * (i + 1) / nl
+                if not (self.training and pdrop > 0 and torch.rand(1).item() < pdrop):
+                    X = blk(X, src_key_padding_mask=mask) if self.a.arch == 'transformer' else blk(X, mask)
+                if self.a.interctc > 0 and i == nl // 2 - 1:
+                    self.inter_out = self.inter_fc(self.inter_norm(X))
         X = self.drop(self.out_norm(X))
         return self.fc(X), olens
 
 
 # ----------------------------------------------------------------------------- augment
+def time_warp(X, lens, a, kernel):
+    """Ricampiona ogni frase con un fattore di velocita casuale (interpolazione lineare)."""
+    out, nl = [], []
+    for i in range(X.shape[0]):
+        L = int(lens[i])
+        f = 1.0 + (2 * np.random.rand() - 1) * a.time_warp
+        L2 = max(kernel + 1, int(round(L * f)))
+        x = F.interpolate(X[i:i + 1, :L].transpose(1, 2), size=L2, mode='linear', align_corners=False)
+        out.append(x[0].T); nl.append(L2)
+    T2 = max(nl)
+    Y = X.new_zeros(X.shape[0], T2, X.shape[2])
+    for i, x in enumerate(out):
+        Y[i, :x.shape[0]] = x
+    return Y, torch.tensor(nl, device=lens.device)
+
+
 def augment(X, lens, a):
     if a.white_noise > 0:
         X = X + torch.randn_like(X) * a.white_noise
@@ -161,6 +225,8 @@ def augment(X, lens, a):
         X = X + torch.randn(X.shape[0], 1, X.shape[2], device=X.device) * a.offset_noise
     if a.speckle > 0:
         X = X * (torch.rand_like(X) > a.speckle)
+    if a.chan_drop > 0:
+        X = X * (torch.rand(X.shape[0], 1, X.shape[2], device=X.device) > a.chan_drop)
     if a.time_mask_frac > 0:
         for i in range(X.shape[0]):
             L = int(lens[i])
@@ -259,6 +325,13 @@ def main():
         return a.lr_end + (a.lr - a.lr_end) * (1 - frac)  # decadimento lineare
 
     scaler = torch.amp.GradScaler(enabled=bool(a.amp))
+    ema = None
+    if a.ema > 0:
+        from torch.optim.swa_utils import AveragedModel, get_ema_multi_avg_fn
+        ema = AveragedModel(model, multi_avg_fn=get_ema_multi_avg_fn(a.ema), use_buffers=True)
+
+    def emodel():
+        return ema.module if ema is not None else model
     ctc = nn.CTCLoss(blank=0, reduction='mean', zero_infinity=True)
     best = 1e9
     t0 = time.time()
@@ -267,21 +340,30 @@ def main():
             g['lr'] = lr_at(step)
         idx = np.random.randint(0, len(train), a.batch)
         b = collate([train[i] for i in idx], device)
-        X = augment(b['X'], b['lens'], a)
+        X, lens = b['X'], b['lens']
+        if a.time_warp > 0:
+            X, lens = time_warp(X, lens, a, a.kernel)
+        X = augment(X, lens, a)
         with torch.autocast('cuda', dtype=torch.float16, enabled=bool(a.amp)):
-            out, olens = model(X, b['days'], b['lens'])
+            out, olens = model(X, b['days'], lens)
         loss = ctc(out.float().log_softmax(-1).transpose(0, 1), b['Y'], olens, b['ylens'])
+        if a.interctc > 0 and a.arch != 'gru':
+            li = ctc(model.inter_out.float().log_softmax(-1).transpose(0, 1), b['Y'], olens, b['ylens'])
+            loss = (1 - a.interctc) * loss + a.interctc * li
         opt.zero_grad(set_to_none=True)
         scaler.scale(loss).backward()
         scaler.unscale_(opt)
         nn.utils.clip_grad_norm_(model.parameters(), 10.0)
         scaler.step(opt); scaler.update()
+        if ema is not None:
+            ema.update_parameters(model)
         if step % a.eval_every == 0 or step == a.steps - 1:
-            per, _ = run_eval(model, test, device)
+            per, _ = run_eval(emodel(), test, device)
             log(f'step {step} loss {loss.item():.3f} test_PER {per:.4f} lr {lr_at(step):.5f} {(time.time()-t0)/(step+1):.3f}s/step')
             if per < best and not a.train_on_test:
                 best = per
-                torch.save(model.state_dict(), f'{out_dir}/best.pt')
+                torch.save(emodel().state_dict(), f'{out_dir}/best.pt')
+    model = emodel()
     torch.save(model.state_dict(), f'{out_dir}/model.pt')
     per, lt = run_eval(model, test, device, want_logits=True)
     _, lc = run_eval(model, comp, device, want_logits=True)

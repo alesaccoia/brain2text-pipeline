@@ -16,7 +16,7 @@ The participant is T12, a person with ALS enrolled in the BrainGate2 clinical tr
 - **Trial structure.** A sentence appears on a screen (10). After a delay and a go cue (12), T12 attempts to say it, either aloud or by mouthing it silently. T12 can no longer produce intelligible speech, but the motor cortex still generates the command to move the mouth.
 - **No onset detection.** The data contain only the window from the go cue to the end of the attempt, so the decoder never has to find where speech starts.
 - **Recording.** The electrodes are sampled at 30 kHz (22). For each electrode and each 20 ms bin, two features are computed (26):
-  - **Threshold crossings (tx):** how many times the voltage dropped below −4.5 × RMS of that electrode (24). This is a cheap proxy for spikes from neurons near the electrode. It needs no spike sorting, which would not be stable over months.
+  - **Threshold crossings (tx):** how many times the voltage dropped below a threshold of −3.5 × RMS of that electrode (24; the data also provide −4.5, −5.5 and −6.5 × RMS as tx2–tx4). This is a cheap proxy for spikes from neurons near the electrode. It needs no spike sorting, which would not be stable over months.
   - **Spike-band power (sbp):** the power of the signal in the spike frequency band.
 
 The released data contain 1,280 features per bin (tx at four thresholds plus sbp, for all 256 electrodes), so the figure shows X with 1,280 columns. The input to our decoder is a subset of that matrix, with one row per 20 ms bin. We use the 128 electrodes of area 6v × 2 features, which gives 256 columns. Area 44 carries little useful information (see the ablations below).

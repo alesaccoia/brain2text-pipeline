@@ -1,0 +1,13 @@
+--extra-index-url https://download.pytorch.org/whl/cu126
+torch==2.7.1
+numpy
+scipy
+h5py
+jiwer
+g2p_en
+nltk
+tqdm
+transformers
+accelerate
+bitsandbytes
+matplotlib

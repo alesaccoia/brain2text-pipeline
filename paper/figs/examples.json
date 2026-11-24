@@ -1,0 +1,68 @@
+[
+ {
+  "ref": "that stinging vapor was caused by chloride vaporization",
+  "greedy": "DH AE T | IH NG IH NG | V M EH | F AW R | W Z | K AA L D | W AA | K AY D | T IY P P ER | AY | IY AH N |",
+  "ngram": "that thing as it was called was called up in",
+  "nbest": [
+   "that thing as it was called was called up in",
+   "that thing as it was called was tied up in",
+   "that thing as it was called was called up on",
+   "that thing as it was called was called per season"
+  ]
+ },
+ {
+  "ref": "a sharp tremor was followed by a jerky roll",
+  "greedy": "AH | K AA B P | T EH M ER | W IH DH | F V IH AH L AH D | B AY | AH | ER K | W AY L |",
+  "ngram": "a top team with killed by a truck while",
+  "nbest": [
+   "a top team with killed by a truck while",
+   "a top team was killed by a truck while",
+   "a top team with killed by a shark while",
+   "a cop came with killed by a truck while"
+  ]
+ },
+ {
+  "ref": "that's a science in itself",
+  "greedy": "DH AE T S | AH | K AY N S | IH N | IH T S EH F |",
+  "ngram": "that's a science in itself",
+  "nbest": [
+   "that's a science in itself",
+   "that's a sign in itself",
+   "that's a sight in itself",
+   "that's a kind in itself"
+  ]
+ },
+ {
+  "ref": "i'm sure there are some",
+  "greedy": "AY M | SH UH R | DH EH R | AW R | T AY M |",
+  "ngram": "i'm sure there are some",
+  "nbest": [
+   "i'm sure there are some",
+   "i'm sure that our time",
+   "i'm sure that our team",
+   "i'm sure there are times"
+  ]
+ },
+ {
+  "ref": "most people aren't",
+  "greedy": "M UW | D IH F P AH L | AA N T |",
+  "ngram": "more people want",
+  "nbest": [
+   "more people want",
+   "more people out",
+   "people want",
+   "my people want"
+  ]
+ },
+ {
+  "ref": "it's a little bit financial type thing",
+  "greedy": "IH T S | AH | L IH T AH L | B IH T | F AH N T Y CH AH L | T AH P | TH IH NG |",
+  "ngram": "it's a little bit spinal tap thing",
+  "nbest": [
+   "it's a little bit spinal tap thing",
+   "it's a little bit unusual to think",
+   "it's a little bit unusual type thing",
+   "it's a little bit unnatural to think"
+  ]
+ }
+]

@@ -1,0 +1,32 @@
+# credentials
+.dryad_credentials
+.dryad_token.json
+.proxy_key
+.env
+
+# environments and caches
+.venv/
+.venv-lm/
+hf_cache/
+nltk_data/
+__pycache__/
+
+# data, runs, outputs
+data/
+runs/
+logs/
+queue/
+submissions/
+repos/
+pip_torch.log
+
+# LaTeX build files
+paper/*.aux
+paper/*.log
+paper/*.out
+paper/*.fls
+paper/*.fdb_latexmk
+paper/build.log
+paper/figs/*.aux
+paper/figs/*.log
+paper/paper_overleaf.zip

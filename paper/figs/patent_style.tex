@@ -1,0 +1,12 @@
+% stile comune delle figure "da brevetto": bianco e nero, linee sottili, numeri di riferimento
+\usetikzlibrary{arrows.meta,calc,patterns,decorations.pathmorphing,decorations.pathreplacing,positioning}
+\tikzset{
+  every node/.style={font=\scriptsize},
+  arr/.style={-{Latex[length=1.8mm,width=1.3mm]}, line width=0.55pt},
+  darr/.style={arr, dashed},
+  blk/.style={draw, line width=0.6pt, align=center, font=\scriptsize, inner sep=2.5pt},
+  thinl/.style={line width=0.35pt},
+  figlab/.style={font=\large\bfseries},
+}
+% \leader{punto}{posizione del numero}{anchor}{numero}
+\newcommand{\leader}[4]{\draw[line width=0.3pt] (#1) to[bend left=12] (#2) node[anchor=#3, inner sep=1pt, font=\small]{#4};}

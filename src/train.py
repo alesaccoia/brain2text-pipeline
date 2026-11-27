@@ -4,7 +4,7 @@ Uso: python src/train.py --name NOME [--arch gru|transformer] [--seed 0] ...
 Salva in runs/NOME: config.json, log.txt, model.pt (finale), best.pt, e logits_{test,competition}.npz
 (e logits_train.npz se --save_train_logits).
 """
-import argparse, json, math, os, pickle, time
+import argparse, json, math, os, pickle, random, time
 import numpy as np
 import torch
 import torch.nn as nn
@@ -27,6 +27,7 @@ def get_args():
     p.add_argument('--arch', default='gru', choices=['gru', 'transformer', 'conformer'])
     p.add_argument('--feats', default='6v', choices=list(FEATSETS))
     p.add_argument('--seed', type=int, default=0)
+    p.add_argument('--resume', type=int, default=1)  # riprende da runs/NAME/ckpt.pt se esiste
     p.add_argument('--steps', type=int, default=10000)
     p.add_argument('--batch', type=int, default=64)
     p.add_argument('--lr', type=float, default=0.02)
@@ -363,8 +364,27 @@ def main():
         return ema.module if ema is not None else model
     ctc = nn.CTCLoss(blank=0, reduction='mean', zero_infinity=True)
     best = 1e9
+    start = 0
+    ck = f'{out_dir}/ckpt.pt'
+    if a.resume and os.path.exists(ck):
+        c = torch.load(ck, map_location=device, weights_only=False)
+        model.load_state_dict(c['model']); opt.load_state_dict(c['opt']); scaler.load_state_dict(c['scaler'])
+        if ema is not None:
+            ema.load_state_dict(c['ema'])
+        start, best = c['step'] + 1, c['best']
+        np.random.set_state(c['np_rng']); random.setstate(c['py_rng'])
+        torch.set_rng_state(c['torch_rng'].cpu()); torch.cuda.set_rng_state(c['cuda_rng'].cpu())
+        log(f'ripreso da checkpoint al passo {start}')
+
+    def save_ckpt(step):
+        torch.save({'model': model.state_dict(), 'opt': opt.state_dict(), 'scaler': scaler.state_dict(),
+                    'ema': ema.state_dict() if ema is not None else None, 'step': step, 'best': best,
+                    'np_rng': np.random.get_state(), 'py_rng': random.getstate(),
+                    'torch_rng': torch.get_rng_state(), 'cuda_rng': torch.cuda.get_rng_state()}, ck + '.tmp')
+        os.replace(ck + '.tmp', ck)
+
     t0 = time.time()
-    for step in range(a.steps):
+    for step in range(start, a.steps):
         for g in opt.param_groups:
             g['lr'] = lr_at(step)
         idx = np.random.randint(0, len(train), a.batch)
@@ -394,10 +414,12 @@ def main():
             ema.update_parameters(model)
         if step % a.eval_every == 0 or step == a.steps - 1:
             per, _ = run_eval(emodel(), test, device)
-            log(f'step {step} loss {loss.item():.3f} test_PER {per:.4f} lr {lr_at(step):.5f} {(time.time()-t0)/(step+1):.3f}s/step')
+            log(f'step {step} loss {loss.item():.3f} test_PER {per:.4f} lr {lr_at(step):.5f} {(time.time()-t0)/(step-start+1):.3f}s/step')
             if per < best and not a.train_on_test:
                 best = per
                 torch.save(emodel().state_dict(), f'{out_dir}/best.pt')
+            if step < a.steps - 1:
+                save_ckpt(step)
     model = emodel()
     torch.save(model.state_dict(), f'{out_dir}/model.pt')
     per, lt = run_eval(model, test, device, want_logits=True)
@@ -412,6 +434,8 @@ def main():
         _, ltr = run_eval(model, d['train'], device, want_logits=True)
         save_logits(f'{out_dir}/logits_train.npz', ltr, d['train'])
     json.dump({'final_test_PER': per, 'best_test_PER': best}, open(f'{out_dir}/result.json', 'w'))
+    if os.path.exists(ck):
+        os.remove(ck)
     log(f'FINE: PER test finale {per:.4f} (migliore {best:.4f})')
 
 
